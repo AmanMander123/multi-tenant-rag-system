@@ -1,0 +1,15 @@
+project_name: "LLM Multi-Tenant RAG System"
+api_v1_prefix: "/api/v1"
+celery:
+  broker_url: "memory://"
+  result_backend: "cache+memory://"
+  task_default_queue: "ingestion"
+  task_default_routing_key: "ingestion.default"
+processing:
+  chunk_size: 1000
+  chunk_overlap: 200
+  embedding_provider: "openai"
+  embedding_model: "text-embedding-3-small"
+gcp_project_id: "gcp-project-id"
+openai_secret_name: "openai-api-key"
+openai_secret_version: "latest"

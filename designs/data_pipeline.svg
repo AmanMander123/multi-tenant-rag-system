@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <style><![CDATA[
+      .title { font: 700 28px/1.3 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", sans-serif; fill:#0b2540;}
+      .subtitle { font: 600 18px/1.3 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", sans-serif; fill:#16324f;}
+      .panel-title { font: 700 18px/1.3 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", sans-serif; fill:#0f2a47;}
+      .body { font: 400 15px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", sans-serif; fill:#1c3d5a;}
+      .small { font: 400 13px/1.3 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", sans-serif; fill:#295377;}
+      .panel { fill:#f7fbff; stroke:#b7d3ff; stroke-width:2; rx:16; }
+      .band  { fill:#f9f9fb; stroke:#c9c9d3; stroke-width:2; rx:18; }
+      .chip  { fill:#e7f1ff; stroke:#b7d3ff; stroke-width:1.5; rx:10; }
+      .note  { fill:#fff8e6; stroke:#ffd27a; stroke-width:1.5; rx:10; }
+    ]]></style>
+  </defs>
+
+  <!-- Page title -->
+  <text x="40" y="60" class="title">Data Pipeline — Multi-Tenant RAG </text>
+  <text x="40" y="92" class="subtitle">Ingestion → Transformation → Storage. Bottom band: Automation &amp; Drift.</text>
+
+  <!-- Column backgrounds -->
+  <rect x="40"  y="120" width="450" height="600" class="panel" />
+  <rect x="535" y="120" width="450" height="600" class="panel" />
+  <rect x="1030" y="120" width="530" height="600" class="panel" />
+
+  <!-- Column titles -->
+  <text x="60"   y="150" class="panel-title">Ingestion Layer</text>
+  <text x="555"  y="150" class="panel-title">Transformation Layer (ETL + Embeddings)</text>
+  <text x="1050" y="150" class="panel-title">Storage Layer</text>
+
+  <!-- Ingestion: Source Registry -->
+  <rect x="60" y="175" width="410" height="94" class="chip"/>
+  <text x="78" y="198" class="panel-title">Source Registry</text>
+  <text x="78" y="222" class="small">
+    <tspan x="78" dy="0">Tracks tenant_id, origin, checksum, last_modified</tspan>
+    <tspan x="78" dy="18">Ensures idempotent ingestion and dedupe</tspan>
+  </text>
+
+  <!-- Ingestion: Tenant Data Sources (PDFs + Web only) -->
+  <rect x="60" y="285" width="410" height="150" class="chip"/>
+  <text x="78" y="310" class="panel-title">Tenant Data Sources</text>
+  <text x="78" y="334" class="body">
+    <tspan x="78" dy="0">• PDFs (uploads &amp; watched buckets)</tspan>
+    <tspan x="78" dy="20">• Web (site map &amp; focused crawl, robots.txt aware)</tspan>
+  </text>
+
+  <!-- Ingestion: Ingestion Gateway -->
+  <rect x="60" y="455" width="410" height="110" class="chip"/>
+  <text x="78" y="480" class="panel-title">Ingestion Gateway</text>
+  <text x="78" y="504" class="small">
+    <tspan x="78" dy="0">Validates auth (tenant isolation), size, MIME</tspan>
+    <tspan x="78" dy="18">Queues jobs → ETL Orchestrator (async)</tspan>
+  </text>
+
+  <!-- Transformation: Orchestrator -->
+  <rect x="555" y="175" width="410" height="110" class="chip"/>
+  <text x="573" y="200" class="panel-title">ETL Orchestrator</text>
+  <text x="573" y="224" class="small">
+    <tspan x="573" dy="0">Schedules steps; retries with exponential backoff</tspan>
+    <tspan x="573" dy="18">Nightly &amp; delta jobs; per-tenant namespaces</tspan>
+  </text>
+
+  <!-- Transformation: Chunking & Cleaning -->
+  <rect x="555" y="305" width="410" height="130" class="chip"/>
+  <text x="573" y="330" class="panel-title">Chunking &amp; Cleaning Service</text>
+  <text x="573" y="354" class="body">
+    <tspan x="573" dy="0">• Semantic/recursive chunking, layout aware</tspan>
+    <tspan x="573" dy="20">• Normalize encodings; strip boilerplate</tspan>
+    <tspan x="573" dy="20">• Emits chunks + metadata (doc_id, page, span)</tspan>
+  </text>
+
+  <!-- Transformation: Embedding Generator -->
+  <rect x="555" y="455" width="410" height="150" class="chip"/>
+  <text x="573" y="480" class="panel-title">Embedding Generator</text>
+  <text x="573" y="504" class="body">
+    <tspan x="573" dy="0">• Model: OpenAI or OSS (bge/instructor), versioned</tspan>
+    <tspan x="573" dy="20">• Batch + async workers; per-tenant limits</tspan>
+    <tspan x="573" dy="20">• Outputs vectors + metadata; logs p50/p95</tspan>
+  </text>
+
+  <!-- Transformation: Isolation note -->
+  <rect x="555" y="625" width="410" height="75" class="note"/>
+  <text x="573" y="650" class="small">
+    <tspan x="573" dy="0">Isolation: tenant namespace + model config; cost/QPS guards</tspan>
+    <tspan x="573" dy="18">Idempotency via checksums &amp; processed flags</tspan>
+  </text>
+
+  <!-- Storage: Vector Store -->
+  <rect x="1050" y="175" width="490" height="150" class="chip"/>
+  <text x="1068" y="200" class="panel-title">Vector Store</text>
+  <text x="1068" y="224" class="body">
+    <tspan x="1068" dy="0">• Pinecone / Weaviate / PGVector</tspan>
+    <tspan x="1068" dy="20">• Keys: tenant_id, doc_id, chunk_id, embed_ver</tspan>
+    <tspan x="1068" dy="20">• HNSW/IVF; metadata filters; optional TTL</tspan>
+  </text>
+
+  <!-- Storage: Object Store -->
+  <rect x="1050" y="345" width="490" height="120" class="chip"/>
+  <text x="1068" y="370" class="panel-title">Object Store</text>
+  <text x="1068" y="394" class="body">
+    <tspan x="1068" dy="0">• S3 / GCS — raw &amp; cleaned docs, page images</tspan>
+    <tspan x="1068" dy="20">• Pathing: /tenant/{id}/docs/{doc_id}/</tspan>
+  </text>
+
+  <!-- Storage: Metadata DB -->
+  <rect x="1050" y="485" width="490" height="155" class="chip"/>
+  <text x="1068" y="510" class="panel-title">Metadata DB</text>
+  <text x="1068" y="534" class="body">
+    <tspan x="1068" dy="0">• Postgres/Firestore: doc registry, states, versions</tspan>
+    <tspan x="1068" dy="20">• Lineage: source → chunks → embeddings</tspan>
+    <tspan x="1068" dy="20">• Powers re-index, audits, and reporting</tspan>
+  </text>
+
+  <!-- Automation & Drift band -->
+  <rect x="40" y="735" width="1520" height="125" class="band"/>
+  <text x="60" y="760" class="panel-title">Automation &amp; Drift</text>
+
+  <rect x="60" y="775" width="470" height="65" class="chip"/>
+  <text x="78" y="800" class="body">
+    <tspan x="78" dy="0">• Nightly ETL &amp; delta re-index (changed sources only)</tspan>
+    <tspan x="78" dy="20">• Scheduler: Cloud Scheduler / Airflow / GH Actions</tspan>
+  </text>
+
+  <rect x="555" y="775" width="470" height="65" class="chip"/>
+  <text x="573" y="800" class="body">
+    <tspan x="573" dy="0">• Drift monitors: embedding distribution, source churn</tspan>
+    <tspan x="573" dy="20">• Thresholds trigger re-embedding &amp; alerts</tspan>
+  </text>
+
+  <rect x="1050" y="775" width="490" height="65" class="chip"/>
+  <text x="1068" y="800" class="body">
+    <tspan x="1068" dy="0">• Alerts to Slack/Pager; dashboards show cost &amp; p50/p95</tspan>
+    <tspan x="1068" dy="20">• Runbooks for failures; dead-letter queues</tspan>
+  </text>
+</svg>

@@ -1,0 +1,22 @@
+[project]
+name = "multi-tenant-rag-system"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.110.0",
+    "pydantic==2.8.2",
+    "pydantic-settings==2.3.1",
+    "python-multipart==0.0.9",
+    "uvicorn[standard]==0.27.1",
+    "pyyaml==6.0.1",
+    "celery==5.3.6",
+    "langchain==0.2.16",
+    "langchain-community==0.2.16",
+    "langchain-openai==0.1.23",
+    "langchain-text-splitters==0.2.2",
+    "pypdf==4.2.0",
+    "google-cloud-secret-manager==2.21.0",
+    "redis==5.0.4",
+]
