@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from fastapi import APIRouter, File, UploadFile, status
+from fastapi import APIRouter, File, UploadFile, Request, status
 
 from app.services import ingestion_service
 from app.logger import get_logger, log_context
@@ -14,7 +14,7 @@ logger = get_logger(__name__)
     status_code=status.HTTP_200_OK,
     summary="Receive and queue data ingestion jobs",
 )
-async def ingest_document(file: UploadFile = File(...)):
+async def ingest_document(request: Request, file: UploadFile = File(...)):
     """
     Receive a PDF file upload and register it for processing.
 
@@ -32,11 +32,15 @@ async def ingest_document(file: UploadFile = File(...)):
             extra={"content_type": content_type, "uploaded_filename": filename},
         )
 
+        auth_context = getattr(request.state, "auth_context", None)
         acknowledgement = ingestion_service.register_ingestion_job(
             file,
             context={
                 "request_id": request_id,
                 "uploaded_filename": filename,
+                "tenant_id": getattr(auth_context, "tenant_id", None),
+                "auth_subject": getattr(auth_context, "subject", None),
+                "auth_email": getattr(auth_context, "email", None),
             },
         )
 

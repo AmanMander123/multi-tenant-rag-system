@@ -85,6 +85,66 @@ class Settings(BaseSettings):
         default="latest",
         description="Secret version to read for the OpenAI API key.",
     )
+    pubsub_topic_ingest: str = Field(
+        default="projects/virtual-assistant-460209/topics/ingestion-documents",
+        description="Fully qualified Pub/Sub topic for ingestion jobs.",
+    )
+    gcs_upload_bucket: str = Field(
+        default="va-rag-uploads-prod",
+        description="Cloud Storage bucket handling raw document uploads.",
+    )
+    default_tenant_id: str = Field(
+        default="default",
+        description="Fallback tenant identifier when authentication is absent.",
+    )
+    supabase_url: str = Field(
+        default="https://virtualassistant460209.supabase.co",
+        description="Base Supabase project URL.",
+    )
+    supabase_jwks_url: str = Field(
+        default="https://virtualassistant460209.supabase.co/auth/v1/jwks",
+        description="Supabase JWKS endpoint used for JWT verification.",
+    )
+    supabase_jwt_audience: str = Field(
+        default="auth.virtualassistant460209.supabase.co",
+        description="Expected audience claim for Supabase-issued JWTs.",
+    )
+    supabase_auth_required: bool = Field(
+        default=False,
+        description="Whether every request must provide a valid Supabase JWT.",
+    )
+    firestore_collection_namespace: str = Field(
+        default="tenants",
+        description="Firestore collection name for tenant metadata.",
+    )
+    pinecone_index_name: str | None = Field(
+        default=None,
+        description="Pinecone index name for embeddings persistence.",
+    )
+    pinecone_cloud: str = Field(
+        default="aws",
+        description="Cloud provider for the Pinecone serverless index.",
+    )
+    pinecone_region: str = Field(
+        default="us-east-1",
+        description="Region for the Pinecone serverless index.",
+    )
+    pinecone_dimension: int = Field(
+        default=1536,
+        description="Embedding vector dimension used to configure Pinecone.",
+    )
+    pubsub_topic_ingest: str = Field(
+        default="projects/virtual-assistant-460209/topics/ingestion-documents",
+        description="Fully qualified Pub/Sub topic for ingestion jobs.",
+    )
+    gcs_upload_bucket: str = Field(
+        default="va-rag-uploads-prod",
+        description="Cloud Storage bucket handling raw document uploads.",
+    )
+    default_tenant_id: str = Field(
+        default="default",
+        description="Fallback tenant identifier when none supplied.",
+    )
 
     @classmethod
     def settings_customise_sources(

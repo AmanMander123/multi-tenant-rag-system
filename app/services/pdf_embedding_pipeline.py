@@ -33,11 +33,7 @@ class PDFEmbeddingPipeline:
     def __init__(self) -> None:
         settings = get_settings()
         self.processing: DocumentProcessingSettings = settings.processing
-        self.splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.processing.chunk_size,
-            chunk_overlap=self.processing.chunk_overlap,
-            separators=["\n\n", "\n", " ", ""],
-        )
+        self.splitter = self._build_splitter()
         self.embedder = self._build_embedder()
 
     def _build_embedder(self):
@@ -65,7 +61,27 @@ class PDFEmbeddingPipeline:
             detail={"provider": provider},
         )
 
-    def process(self, pdf_path: Path, *, context: Dict[str, Any]) -> List[ChunkEmbedding]:
+    def _build_splitter(
+        self,
+        *,
+        chunk_size: int | None = None,
+        chunk_overlap: int | None = None,
+    ) -> RecursiveCharacterTextSplitter:
+        return RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size or self.processing.chunk_size,
+            chunk_overlap=chunk_overlap
+            if chunk_overlap is not None
+            else self.processing.chunk_overlap,
+            separators=["\n\n", "\n", " ", ""],
+        )
+
+    def process(
+        self,
+        pdf_path: Path,
+        *,
+        context: Dict[str, Any],
+        chunk_config: Dict[str, int] | None = None,
+    ) -> List[ChunkEmbedding]:
         """
         Run the end-to-end pipeline: load PDF, chunk text, and embed chunks.
 
@@ -81,7 +97,16 @@ class PDFEmbeddingPipeline:
                 detail={"source_path": str(pdf_path)},
             )
 
-        chunks = self.splitter.split_documents(documents)
+        splitter = (
+            self._build_splitter(
+                chunk_size=chunk_config.get("size"),
+                chunk_overlap=chunk_config.get("overlap"),
+            )
+            if chunk_config
+            else self.splitter
+        )
+
+        chunks = splitter.split_documents(documents)
 
         texts = [chunk.page_content for chunk in chunks]
         embeddings = self.embedder.embed_documents(texts)
