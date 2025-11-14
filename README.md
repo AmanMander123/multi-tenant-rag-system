@@ -17,7 +17,7 @@ I am building a production-ready Retrieval-Augmented Generation (RAG) platform. 
 2. **Storage tier**: persist uploads in Cloud Storage and write chunk metadata + embeddings to a managed vector DB.
 3. **Tenant isolation**: per-tenant namespaces, quotas, and idempotency keys enforced at the API layer and reflected in storage.
 4. **Retrieval & guardrails**: add retrievers, evaluation harnesses, caching, and policy enforcement for live traffic.
-5. **IaC + CI/CD**: Terraform-managed infra plus GitHub Actions + Cloud Run blue/green deployments.
+5. **IaC + CI/CD**: Terraform-managed infra
 
 ---
 

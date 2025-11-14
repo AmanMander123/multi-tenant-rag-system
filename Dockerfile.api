@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1.6
+
+FROM python:3.11-slim AS build
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG UV_VERSION=0.4.18
+RUN pip install --no-cache-dir "uv==${UV_VERSION}"
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
+
+COPY . .
+RUN uv sync --frozen --no-dev
+
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_PROJECT_ENV=/app/.venv \
+    VIRTUAL_ENV=/app/.venv \
+    PATH="/app/.venv/bin:/usr/local/bin:/usr/bin" \
+    HOME=/tmp \
+    TMPDIR=/tmp \
+    UV_CACHE_DIR=/tmp/.cache/uv \
+    UV_CONFIG_DIR=/tmp/.config/uv \
+    UV_DATA_DIR=/tmp/.local/share/uv
+
+WORKDIR /app
+
+COPY --from=build /usr/local/bin/uv /usr/local/bin/uv
+COPY --from=build /app /app
+
+# Ensure writable directories for the non-root user Cloud Run enforces.
+RUN mkdir -p /tmp/.cache/uv /tmp/.config/uv /tmp/.local/share/uv && chown -R 65532:65532 /app /tmp
+USER 65532:65532
+
+ENTRYPOINT ["uv"]
+CMD ["run", "gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080", "--workers", "2"]
