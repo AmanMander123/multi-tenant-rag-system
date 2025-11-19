@@ -1,114 +1,101 @@
 # LLM-Powered Multi-Tenant RAG System
 
-I am building a production-ready Retrieval-Augmented Generation (RAG) platform. The focus is tenant isolation, security, and the ability to scale ingestion + retrieval to millions of documents on Google Cloud.
+I am building a multi-tenant, production-ready Retrieval-Augmented Generation (RAG) platform. The mission is to prove how to ship a tenant-isolated, cloud-native AI system on Google Cloud that can ingest millions of documents while keeping guardrails, observability, and automation front and center.
 
 ---
 
-## Project Status — What’s Done
-- **FastAPI ingestion surface** with `POST /api/v1/ingestion/documents`, request correlation IDs, and structured logging.
-- **Celery-based async pipeline** (for local/dev) backed by Redis, feeding all logs/context into the worker tier.
-- **LangChain document pipeline**: PyPDF loader ➜ RecursiveCharacterTextSplitter (1 000 chars / 200 overlap) ➜ OpenAI `text-embedding-3-small` embeddings.
-- **Secret hygiene**: OpenAI key lives in GCP Secret Manager, loaded via IAM-secured ADC; no credentials in the repo.
-- **Telemetry-ready logging**: custom logger propagates request/tenant metadata across API and worker boundaries for later Cloud Logging / OpenTelemetry wiring.
-- **Security defaults**: `.env`, `.venv/`, and other sensitive files are git-ignored; only config templates ship in git.
+## Current Build — Data Pipeline ✅
+The Data Pipeline pillar from the architecture is almost complete (Automation & Drift is still on deck). Every component now runs against managed GCP services so the remaining pillars can be layered in quickly.
 
-## Roadmap — What’s Next
-1. **GCP-native fan-out**: split API + worker into separate Cloud Run services using Pub/Sub instead of Celery/Redis; autoscale by subscription lag.
-2. **Storage tier**: persist uploads in Cloud Storage and write chunk metadata + embeddings to a managed vector DB.
-3. **Tenant isolation**: per-tenant namespaces, quotas, and idempotency keys enforced at the API layer and reflected in storage.
-4. **Retrieval & guardrails**: add retrievers, evaluation harnesses, caching, and policy enforcement for live traffic.
-5. **IaC + CI/CD**: Terraform-managed infra
+### Cloud-native ingestion surface
+- **FastAPI on Cloud Run** exposes `POST /api/v1/ingestion/documents`, propagates request + tenant context, and optionally enforces Supabase JWT auth (full auth functionality coming soon!).
+- **Document validation & logging** ensures each upload receives a `request_id`, `tenant_id`, and structured log context for end-to-end tracing.
+- **Cloud Storage fan-in** stores objects inside `gs://{bucket-name}/<tenant>/<date>/<document_id>.pdf` with MIME enforcement and deterministic paths.
+- **Pub/Sub fan-out** publishes schema-versioned messages to `projects/{project-id}/topics/ingestion-documents` with attributes for priority, auth subject, and ingestion mode.
+
+### Streaming worker & embeddings
+- **Pub/Sub worker** (`app/workers/pubsub_runner.py`) consumes from a dedicated subscription, restores the logging context, and tracks lifecycle status rows inside Supabase Postgres.
+- **LangChain pipeline**: `PyPDFLoader` ➜ `RecursiveCharacterTextSplitter` (1k chars / 200 overlap) ➜ OpenAI `text-embedding-3-small`. The API key is fetched at runtime from Secret Manager through ADC.
+- **Vector persistence**: embeddings are upserted into Pinecone using per-tenant namespaces, while chunk counts/errors remain in Supabase for dashboards and admin tooling.
+- **Operational hardening**: message retries vs. permanent failures, request-scoped temp files, and explicit schema versions keep the worker resilient.
+
+### Security & observability groundwork
+- **SupabaseAuthMiddleware** is already wired in so JWT claims, quotas, and tenant IDs flow through the stack before a UI even exists.
+- **Structured logging everywhere**: the logger carries metadata across API ➜ Pub/Sub ➜ worker, paving the way for Cloud Logging dashboards, OpenTelemetry traces, and Slack/Pager alerts.
+- **Principle of least privilege**: Cloud Run, Pub/Sub, Storage, Pinecone, Supabase, and Secret Manager interactions are isolated per role; no sensitive values live in git.
+
+### Remaining Data Pipeline tasks
+- Nightly ETL / delta re-index workflows.
+- Retriever drift monitoring and Slack alerts when embeddings skew.
 
 ---
 
-## Architecture Snapshot
-- **Ingestion API (Cloud Run)**: validates PDFs, persists uploads, publishes async jobs, and returns immediate acknowledgements.
-- **Worker Service**: currently Celery for local dev; will become its own Cloud Run deployment consuming Pub/Sub, running LangChain chunking + embeddings, and writing to storage.
-- **Secrets**: Google Secret Manager supplies the OpenAI key; services access it via IAM/ADC so nothing sensitive lands in env vars or git.
-- **Logging & context**: request IDs, tenant metadata, and filenames flow through API ➜ queue ➜ worker for full-trace observability.
+## Roadmap — Retrieval ➜ LLM Core ➜ Backend ➜ Frontend
+I am tackling the rest of the architecture column by column so followers can see the system evolve.
+
+### Retrieval Engine
+- Launch the hybrid retriever: Pinecone dense vectors + BM25 (likely Firestore/Elastic) with a cross-encoder reranker.
+- Automate chunk upserts/backfills so reprocessing stays idempotent across tenants.
+- Ship evaluation harnesses (Precision@K, Recall, MRR) plus latency/cost telemetry per query profile.
+
+### LLM Core
+- Build an orchestrator that routes to the best LLM per request (quality vs. cost) and streams/tool-calls responses.
+- Introduce YAML-driven prompt management with versioning, canary/AB toggles, and rollbacks.
+- Add guardrails (PII and safety filters, jailbreak defenses) plus semantic + response caches to cut costs.
+
+### Backend Platform & Ops
+- Expand the FastAPI surface (`/ask`, `/index`, `/eval`, `/admin`) with pagination, streaming, rate limits, and idempotency keys.
+- Harden platform controls: API keys, quotas, tenant isolation, secrets service, and audit trails.
+- Terraform everything (Cloud Run, Pub/Sub, Storage, Firestore, Secret Manager) and ship GitHub Actions ➜ Cloud Run blue/green deploys.
+
+### Frontend & Observability
+- Ship a Vite/React chat workspace with tenant-aware history, admin dashboards, and ingestion telemetry.
+- Observability stack: OpenTelemetry traces, LangSmith spans, structured logs, custom metrics, Slack/Pager alerts tied to SLOs.
+- Feedback & eval loops: thumbs up/down into Supabase, Ragas/custom eval harness, and win-rate dashboards.
+
+---
+
+## High-Level Architecture
+Every milestone traces back to this blueprint so progress is easy to follow.
+
+![High-Level Architecture](designs/high_level_architecture.svg)
 
 ---
 
 ## Local Development Runbook
+Even though the stack targets managed services, you can iterate locally with the same primitives.
+
 1. **Install deps**
    ```bash
    uv sync
    ```
-2. **Authenticate for Secret Manager**
+2. **Authenticate & export env vars**
    ```bash
    gcloud auth application-default login
+   export PUBSUB_SUB_INGEST_WORKER="projects/<project>/subscriptions/<subscription>"
+   export SUPABASE_DB_URL="postgresql://<user>@<host>:6543/postgres"
+   export SUPABASE_DB_PASSWORD="<supabase password>"
+   export PINECONE_API_KEY="<pinecone key>"
    ```
-3. **Environment config** (`.env` is git-ignored)
-   ```
-   CELERY__BROKER_URL=redis://localhost:6379/0
-   CELERY__RESULT_BACKEND=redis://localhost:6379/1
-   ```
-4. **Infra dependencies**
-   ```bash
-   docker run --rm -p 6379:6379 redis:7
-   ```
-5. **Run services**
+3. **Run the API**
    ```bash
    uv run uvicorn app.main:app --reload
-   uv run celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo
    ```
-6. **Smoke test**
+4. **Run the Pub/Sub worker**
+   ```bash
+   uv run python -m app.workers.pubsub_runner
+   ```
+5. **Smoke test ingestion**
    ```bash
    curl -X POST "http://localhost:8000/api/v1/ingestion/documents" \
+     -H "x-tenant-id: demo" \
      -F "file=@sample.pdf;type=application/pdf"
    ```
-   The worker terminal prints `[INGESTION TEST] filename=... chunks=... model=...` to confirm embeddings ran.
+   The API uploads to Cloud Storage, publishes a Pub/Sub message, and the worker logs chunk + Pinecone upsert counts.
 
-> **Why Celery?** It keeps local iteration fast. Production will swap in Cloud Run services + Pub/Sub for durable, horizontally scalable fan-out.
-
----
-
-## Async Ingestion Flow (Current)
-1. Client uploads PDF.
-2. API validates MIME type, persists the file to a temp path, and logs context (request_id, tenant, filename).
-3. Job payload (filename, context, path) is enqueued via Celery/Redis.
-4. Worker restores the logging context, loads the PDF with LangChain, chunks, and embeds via OpenAI.
-5. Diagnostic log + print confirm chunk counts; the next milestone will persist vectors to storage.
-
----
-
-## Future Cloud Deployment Strategy
-- **Separate Cloud Run services** for API and worker, each with its own service account, autoscaling policy, and IAM role boundaries.
-- **Pub/Sub (or Cloud Tasks)** replaces Redis so ingestion can spike to millions of jobs with durable retries and dead-letter queues.
-- **Cloud Storage** for uploads, **managed vector DB** for embeddings, and **Cloud SQL/Firestore** for metadata + job states.
-- **Cloud Monitoring + Logging** dashboards for queue depth, worker throughput, and per-tenant SLAs.
-
----
-
-## System Building Blocks
-- **Data sources**: PDFs today, roadmap includes web, APIs, and database connectors.
-- **ETL & embeddings**: LangChain pipelines with configurable chunk size/overlap and swappable embedding providers.
-- **Storage**: object store, vector DB, metadata DB, and nightly drift monitors.
-- **Retrieval engine**: hybrid BM25 + dense + rerankers, evaluation metrics (P@K/Recall/MRR), and caching layers.
-- **LLM core**: prompt mgmt, tool calling, guardrails, semantic + response caches (to be implemented).
-- **Ops**: Terraform/IaC, GitHub Actions, Cloud Run blue/green, feature flags.
-
----
-
-## Security & Observability Principles
-- Secrets stay in Secret Manager; `.env` and other sensitive files are ignored via `.gitignore`.
-- Structured logging ensures every log line includes correlation IDs and (future) tenant identifiers.
-- Planned guardrails: rate limiting, JWT/API key auth, Workload Identity, and per-tenant quotas once the control plane is wired up.
-
----
-
-## API Usage
-- **Endpoint**: `POST /api/v1/ingestion/documents`
-- **Body**: `multipart/form-data` with a `file` field (PDF only for now).
-- **Response**: 200 JSON acknowledgement detailing filename + status while the worker handles chunking/embedding asynchronously.
-
-Example:
-```bash
-curl -X POST "http://localhost:8000/api/v1/ingestion/documents" \
-  -F "file=@sample.pdf;type=application/pdf"
-```
+> Tip: assign yourself a Dev subscription in GCP so you can watch backlog depth and autoscaling behavior during local tests.
 
 ---
 
 ## Follow Along
-I’m sharing frequent build notes and architecture breakdowns on GitHub and X. The next drop will cover the Cloud Run + Pub/Sub refactor, vector persistence, and tenant-aware controls. Stay tuned if you’re interested in how to design AI systems that are secure, fault tolerant, and ready for millions of users.
+I am sharing regular build notes, Terraform drops, and retrieval experiments on GitHub and on X. Next up: bring the Retrieval Engine online, wire up prompt/guardrail scaffolding, and add UI + observability layers. If you want to see what a production-grade AI platform work looks like in the open, follow along and say hi.
