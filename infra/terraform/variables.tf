@@ -29,7 +29,7 @@ variable "worker_image" {
 variable "github_repository" {
   description = "GitHub repository in OWNER/REPO format allowed to deploy via Workload Identity Federation."
   type        = string
-  default     = "amanmander123/multi-tenant-rag-system"
+  default     = "AmanMander123/multi-tenant-rag-system"
 }
 
 variable "supabase_url" {
