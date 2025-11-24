@@ -164,7 +164,7 @@ class Settings(BaseSettings):
         description="Firestore collection name for tenant metadata.",
     )
     pinecone_index_name: str | None = Field(
-        default=None,
+        default="rag-embeddings-prod-gcp-1a",
         description="Pinecone index name for embeddings persistence.",
     )
     pinecone_cloud: str = Field(

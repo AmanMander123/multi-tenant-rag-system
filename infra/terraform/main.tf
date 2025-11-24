@@ -379,6 +379,17 @@ resource "google_cloud_run_v2_service" "worker" {
     containers {
       image = var.worker_image
 
+      args = [
+        "run",
+        "uvicorn",
+        "app.workers.push_app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8080",
+      ]
+      command = ["uv"]
+
       env {
         name  = "APP_ENV"
         value = "prod"
@@ -387,11 +398,6 @@ resource "google_cloud_run_v2_service" "worker" {
       env {
         name  = "GCLOUD_PROJECT"
         value = var.project_id
-      }
-
-      env {
-        name  = "PUBSUB_SUB_INGEST_WORKER"
-        value = google_pubsub_subscription.worker.id
       }
 
       env {
@@ -407,11 +413,6 @@ resource "google_cloud_run_v2_service" "worker" {
       env {
         name  = "FIRESTORE_COLLECTION_NAMESPACE"
         value = var.firestore_collection_namespace
-      }
-
-      env {
-        name  = "PINECONE_INDEX_URL"
-        value = "https://rag-embeddings-prod-gcp-1a.pinecone.io"
       }
 
       env {
