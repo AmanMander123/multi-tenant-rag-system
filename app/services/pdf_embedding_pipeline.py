@@ -118,10 +118,11 @@ class PDFEmbeddingPipeline:
                 **context,
                 "chunk_index": index,
                 "source_path": str(pdf_path),
+                "embedding_model": self.processing.embedding_model,
             }
             chunk_embeddings.append(
                 ChunkEmbedding(
-                    chunk_id=uuid4().hex,
+                    chunk_id=str(uuid4()),
                     text=chunk.page_content,
                     embedding=vector,
                     metadata=metadata,
