@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import os
 import urllib.parse
-from typing import Iterable, Optional
+from hashlib import sha256
+from typing import Iterable, List, Optional, Sequence
 
 import psycopg
+from psycopg import sql
+from psycopg.types.json import Json
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from pinecone import Pinecone, ServerlessSpec
@@ -52,6 +55,27 @@ class MetadataRepository:
             updated_at timestamptz DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS documents_tenant_idx ON documents (tenant_id);
+
+        CREATE TABLE IF NOT EXISTS chunks (
+            chunk_id uuid PRIMARY KEY,
+            tenant_id text NOT NULL,
+            document_id uuid NOT NULL,
+            chunk_index integer NOT NULL,
+            content text NOT NULL,
+            chunk_hash text NOT NULL,
+            schema_version text NOT NULL,
+            embedding_model text NOT NULL,
+            source_uri text,
+            page_number integer,
+            metadata jsonb,
+            tsv tsvector,
+            created_at timestamptz DEFAULT NOW(),
+            updated_at timestamptz DEFAULT NOW()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS chunks_tenant_hash_idx ON chunks (tenant_id, chunk_hash);
+        CREATE INDEX IF NOT EXISTS chunks_document_idx ON chunks (document_id);
+        CREATE INDEX IF NOT EXISTS chunks_tenant_idx ON chunks (tenant_id);
+        CREATE INDEX IF NOT EXISTS chunks_tsv_idx ON chunks USING GIN (tsv);
         """
         with self._pool.connection() as conn, conn.cursor() as cur:  # type: ignore[union-attr]
             cur.execute(ddl)
@@ -100,6 +124,162 @@ class MetadataRepository:
             logger.exception("Failed to upsert document metadata.", extra={"document_id": document_id})
             raise
 
+    def upsert_chunks(
+        self,
+        *,
+        tenant_id: str,
+        document_id: str,
+        chunks: Sequence[ChunkEmbedding],
+        schema_version: str,
+        tsvector_config: str,
+        source_uri: str | None = None,
+    ) -> int:
+        """
+        Persist chunk text + metadata and maintain FTS tsvector.
+
+        Idempotent via unique (tenant_id, chunk_hash) constraint.
+        """
+        if not chunks:
+            return 0
+
+        records: List[dict] = []
+        for chunk in chunks:
+            content = chunk.text
+            chunk_hash = sha256(content.encode("utf-8")).hexdigest()
+            metadata = {**(chunk.metadata or {}), "document_id": document_id}
+            page_number = metadata.get("page") or metadata.get("page_number")
+            try:
+                page_number_int = int(page_number) if page_number is not None else None
+            except (TypeError, ValueError):
+                page_number_int = None
+
+            records.append(
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "tenant_id": tenant_id,
+                    "document_id": document_id,
+                    "chunk_index": metadata.get("chunk_index", 0),
+                    "content": content,
+                    "chunk_hash": chunk_hash,
+                    "schema_version": schema_version,
+                    "embedding_model": metadata.get("embedding_model", settings.processing.embedding_model),
+                    "source_uri": source_uri or metadata.get("source") or metadata.get("source_path"),
+                    "page_number": page_number_int,
+                    "metadata": Json(metadata),
+                    "tsvector_config": tsvector_config,
+                }
+            )
+
+        insert_sql = sql.SQL(
+            """
+            INSERT INTO chunks (
+                chunk_id, tenant_id, document_id, chunk_index,
+                content, chunk_hash, schema_version, embedding_model,
+                source_uri, page_number, metadata, tsv, created_at, updated_at
+            )
+            VALUES (
+                %(chunk_id)s, %(tenant_id)s, %(document_id)s, %(chunk_index)s,
+                %(content)s, %(chunk_hash)s, %(schema_version)s, %(embedding_model)s,
+                %(source_uri)s, %(page_number)s, %(metadata)s,
+                to_tsvector(%(tsvector_config)s, %(content)s),
+                NOW(), NOW()
+            )
+            ON CONFLICT (tenant_id, chunk_hash)
+            DO UPDATE SET
+                content = EXCLUDED.content,
+                chunk_index = EXCLUDED.chunk_index,
+                document_id = EXCLUDED.document_id,
+                schema_version = EXCLUDED.schema_version,
+                embedding_model = EXCLUDED.embedding_model,
+                source_uri = COALESCE(EXCLUDED.source_uri, chunks.source_uri),
+                page_number = COALESCE(EXCLUDED.page_number, chunks.page_number),
+                metadata = EXCLUDED.metadata,
+                tsv = EXCLUDED.tsv,
+                updated_at = NOW();
+            """
+        )
+
+        try:
+            with self.pool.connection() as conn, conn.cursor() as cur:
+                cur.executemany(insert_sql, records)
+        except Exception:
+            logger.exception(
+                "Failed to upsert chunk records.",
+                extra={"tenant_id": tenant_id, "document_id": document_id, "count": len(records)},
+            )
+            raise
+
+        logger.info(
+            "Upserted chunk records.",
+            extra={"tenant_id": tenant_id, "document_id": document_id, "count": len(records)},
+        )
+        return len(records)
+
+    def search_lexical(
+        self,
+        *,
+        tenant_id: str,
+        query: str,
+        limit: int,
+        tsvector_config: str,
+    ) -> list[dict]:
+        """BM25/FTS search across per-tenant chunk corpus."""
+        sql_query = """
+        WITH q AS (
+            SELECT plainto_tsquery(%(config)s, %(q)s) AS query
+        )
+        SELECT
+            c.chunk_id,
+            c.document_id,
+            c.content,
+            c.page_number,
+            c.source_uri,
+            c.metadata,
+            ts_rank_cd(c.tsv, q.query) AS rank
+        FROM chunks c, q
+        WHERE c.tenant_id = %(tenant_id)s
+          AND c.tsv @@ q.query
+        ORDER BY rank DESC
+        LIMIT %(limit)s;
+        """
+        params = {
+            "tenant_id": tenant_id,
+            "q": query,
+            "limit": limit,
+            "config": tsvector_config,
+        }
+        with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql_query, params)
+            rows = cur.fetchall()
+        return rows
+
+    def fetch_chunks_by_ids(
+        self,
+        *,
+        tenant_id: str,
+        chunk_ids: Sequence[str],
+    ) -> list[dict]:
+        """Fetch chunk content/metadata for a set of chunk IDs within a tenant."""
+        if not chunk_ids:
+            return []
+        sql_query = """
+        SELECT
+            chunk_id,
+            document_id,
+            content,
+            page_number,
+            source_uri,
+            metadata
+        FROM chunks
+        WHERE tenant_id = %(tenant_id)s
+          AND chunk_id = ANY(%(chunk_ids)s::uuid[]);
+        """
+        params = {"tenant_id": tenant_id, "chunk_ids": list(chunk_ids)}
+        with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql_query, params)
+            rows = cur.fetchall()
+        return rows
+
 
 class PineconeVectorStore:
     """Handles embedding persistence into Pinecone."""
@@ -147,6 +327,36 @@ class PineconeVectorStore:
             extra={"tenant_id": tenant_id, "document_id": document_id, "count": count},
         )
         return count
+
+    def dense_search(
+        self,
+        *,
+        tenant_id: str,
+        vector: list[float],
+        top_k: int,
+    ) -> list[dict]:
+        """Run a dense vector search within the tenant namespace."""
+        response = self._index.query(
+            namespace=tenant_id,
+            vector=vector,
+            top_k=top_k,
+            include_values=False,
+            include_metadata=True,
+        )
+        matches = response.get("matches", []) if isinstance(response, dict) else response.matches
+        results = []
+        for match in matches or []:
+            metadata = getattr(match, "metadata", None) or match.get("metadata", {})  # type: ignore[union-attr]
+            score = getattr(match, "score", None) or match.get("score")  # type: ignore[union-attr]
+            chunk_id = getattr(match, "id", None) or match.get("id")  # type: ignore[union-attr]
+            results.append(
+                {
+                    "chunk_id": chunk_id,
+                    "score": float(score) if score is not None else None,
+                    "metadata": metadata or {},
+                }
+            )
+        return results
 
     def _ensure_index_exists(self, name: str) -> None:
         indexes = {i["name"] for i in self._client.list_indexes()}

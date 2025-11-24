@@ -58,6 +58,51 @@ class DocumentProcessingSettings(BaseModel):
     )
 
 
+class RetrievalSettings(BaseModel):
+    """Hybrid retrieval configuration (dense + lexical + rerank)."""
+
+    dense_top_n: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        description="Number of dense hits to fetch from the vector store.",
+    )
+    bm25_top_m: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        description="Number of lexical hits to fetch from the BM25 index.",
+    )
+    rerank_top_k: int = Field(
+        default=8,
+        ge=1,
+        le=50,
+        description="Number of final contexts to return after reranking.",
+    )
+    reranker_model: str = Field(
+        default="gpt-4o-mini",
+        description="OpenAI model used as a cross-encoder style reranker.",
+    )
+    reranker_provider: Literal["openai"] = Field(
+        default="openai",
+        description="Provider for reranking calls.",
+    )
+    reranker_timeout_seconds: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="Timeout for reranker requests.",
+    )
+    chunk_schema_version: str = Field(
+        default="2024-09-24",
+        description="Schema version for chunk persistence and indexing.",
+    )
+    tsvector_config: str = Field(
+        default="english",
+        description="Postgres text search configuration for BM25/FTS.",
+    )
+
+
 class Settings(BaseSettings):
     """Application configuration loaded from YAML with environment overrides."""
 
@@ -73,6 +118,7 @@ class Settings(BaseSettings):
     processing: DocumentProcessingSettings = Field(
         default_factory=DocumentProcessingSettings
     )
+    retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
     gcp_project_id: str = Field(
         default="rag-knowledge-base-464616",
         description="Default GCP project ID used for secret access and telemetry.",

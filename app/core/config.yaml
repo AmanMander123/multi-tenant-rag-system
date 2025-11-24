@@ -10,6 +10,15 @@ processing:
   chunk_overlap: 200
   embedding_provider: "openai"
   embedding_model: "text-embedding-3-small"
+retrieval:
+  dense_top_n: 20
+  bm25_top_m: 20
+  rerank_top_k: 8
+  reranker_model: "gpt-4o-mini"
+  reranker_provider: "openai"
+  reranker_timeout_seconds: 10
+  chunk_schema_version: "2024-09-24"
+  tsvector_config: "english"
 gcp_project_id: "virtual-assistant-460209"
 openai_secret_name: "openai-api-key"
 openai_secret_version: "latest"

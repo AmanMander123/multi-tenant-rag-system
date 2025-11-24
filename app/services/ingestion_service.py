@@ -40,8 +40,8 @@ def register_ingestion_job(
 
     merged_context = {**get_context(), **(context or {})}
     tenant_id = str(merged_context.get("tenant_id") or settings.default_tenant_id)
-    request_id = str(merged_context.get("request_id") or uuid4().hex)
-    document_id = str(merged_context.get("document_id") or uuid4().hex)
+    request_id = str(merged_context.get("request_id") or uuid4())
+    document_id = str(merged_context.get("document_id") or uuid4())
 
     with log_context(
         request_id=request_id,
