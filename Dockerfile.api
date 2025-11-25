@@ -44,13 +44,4 @@ RUN mkdir -p /tmp/.cache/uv /tmp/.config/uv /tmp/.local/share/uv && chown -R 655
 USER 65532:65532
 
 ENTRYPOINT ["uv"]
-CMD [
-  "run",
-  "gunicorn",
-  "app.main:app",
-  "-k", "uvicorn.workers.UvicornWorker",
-  "--bind", "0.0.0.0:8080",
-  "--workers", "1",
-  "--timeout", "120",
-  "--graceful-timeout", "30"
-]
+CMD ["run", "gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080", "--workers", "1", "--timeout", "120", "--graceful-timeout", "30"]
