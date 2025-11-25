@@ -324,6 +324,46 @@ resource "google_cloud_run_v2_service" "api" {
       }
 
       env {
+        name = "SUPABASE_DB_URL"
+        value_source {
+          secret_key_ref {
+            secret  = data.google_secret_manager_secret.supabase_db_url.id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "SUPABASE_DB_PASSWORD"
+        value_source {
+          secret_key_ref {
+            secret  = data.google_secret_manager_secret.supabase_db_password.id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "OPENAI_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = data.google_secret_manager_secret.openai.id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "PINECONE_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = data.google_secret_manager_secret.pinecone.id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
         name  = "SUPABASE_URL"
         value = var.supabase_url
       }
