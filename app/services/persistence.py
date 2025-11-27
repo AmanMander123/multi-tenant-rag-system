@@ -380,7 +380,7 @@ class MetadataRepository:
         JOIN documents d ON d.document_id = q.document_id AND d.tenant_id = q.tenant_id
         WHERE q.status = 'pending'
           AND q.attempts < %(max_attempts)s
-          AND (%(tenant_id)s IS NULL OR q.tenant_id = %(tenant_id)s)
+          AND (%(tenant_id)s::text IS NULL OR q.tenant_id = %(tenant_id)s)
         ORDER BY q.priority DESC, q.created_at ASC
         LIMIT %(limit)s;
         """
