@@ -448,7 +448,7 @@ class MetadataRepository:
                         d.updated_at
         FROM documents d
         WHERE d.status IN ('completed', 'processing')
-          AND (%(tenant_id)s IS NULL OR d.tenant_id = %(tenant_id)s)
+          AND (%(tenant_id)s::text IS NULL OR d.tenant_id = %(tenant_id)s)
           AND (
             d.last_schema_version IS DISTINCT FROM %(target_schema)s
             OR d.last_embedding_model IS DISTINCT FROM %(target_embedding)s
