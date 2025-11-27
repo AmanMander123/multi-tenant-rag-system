@@ -632,6 +632,16 @@ resource "google_monitoring_alert_policy" "pubsub_dlq" {
   }
 }
 
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
+resource "google_service_account_iam_member" "scheduler_impersonation" {
+  service_account_id = google_service_account.ci.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
+}
+
 resource "google_cloud_scheduler_job" "reindex_nightly" {
   name        = "rag-reindex-nightly"
   description = "Nightly reindex/backfill trigger"
