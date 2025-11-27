@@ -517,9 +517,9 @@ resource "google_cloud_run_v2_job" "reindex" {
     template {
       service_account = google_service_account.worker.email
       containers {
-        image = var.worker_image
+        image   = var.worker_image
         command = ["uv"]
-        args = ["run", "python", "-m", "app.workers.reindex_job"]
+        args    = ["run", "python", "-m", "app.workers.reindex_job"]
 
         env {
           name  = "APP_ENV"
