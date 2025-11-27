@@ -7,6 +7,7 @@ import sys
 import threading
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Dict
@@ -244,6 +245,7 @@ class PubSubIngestionWorker:
                 document_id=job.document_id,
                 embeddings=chunk_embeddings,
             )
+            indexed_at = datetime.now(tz=timezone.utc).isoformat()
             self._metadata_repo.upsert_document(
                 document_id=job.document_id,
                 tenant_id=job.tenant_id,
@@ -251,6 +253,9 @@ class PubSubIngestionWorker:
                 gcs_uri=job.gcs_uri,
                 status="completed",
                 chunk_count=chunk_count,
+                last_indexed_at=indexed_at,
+                last_schema_version=self.settings.retrieval.chunk_schema_version,
+                last_embedding_model=self.settings.processing.embedding_model,
             )
             logger.info(
                 "Ingestion job processed.",

@@ -19,6 +19,14 @@ retrieval:
   reranker_timeout_seconds: 10
   chunk_schema_version: "2024-09-24"
   tsvector_config: "english"
+reindex:
+  batch_size: 25
+  max_documents: 200
+  drift_lookback_days: 1
+  stale_after_days: 30
+  max_attempts: 3
+  queue_poll_limit: 200
+  soft_timeout_seconds: 600
 gcp_project_id: "virtual-assistant-460209"
 openai_secret_name: "openai-api-key"
 openai_secret_version: "latest"
