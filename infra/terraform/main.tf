@@ -501,6 +501,90 @@ resource "google_cloud_run_v2_service" "worker" {
   launch_stage = "BETA"
 }
 
+resource "google_cloud_run_v2_job" "reindex" {
+  name     = "rag-reindex"
+  location = var.region
+  depends_on = [
+    google_storage_bucket_iam_member.worker_reader,
+    google_storage_bucket_iam_member.worker_temp_writer,
+    google_secret_manager_secret_iam_member.worker_openai,
+    google_secret_manager_secret_iam_member.worker_pinecone,
+    google_secret_manager_secret_iam_member.worker_supabase_db,
+    google_secret_manager_secret_iam_member.worker_supabase_db_url
+  ]
+
+  template {
+    template {
+      service_account = google_service_account.worker.email
+      containers {
+        image = var.worker_image
+        command = ["uv"]
+        args = ["run", "python", "-m", "app.workers.reindex_job"]
+
+        env {
+          name  = "APP_ENV"
+          value = "prod"
+        }
+
+        env {
+          name  = "GCLOUD_PROJECT"
+          value = var.project_id
+        }
+
+        env {
+          name  = "GCS_UPLOAD_BUCKET"
+          value = google_storage_bucket.uploads.name
+        }
+
+        env {
+          name  = "GCS_TEMP_BUCKET"
+          value = google_storage_bucket.worker_temp.name
+        }
+
+        env {
+          name = "SUPABASE_DB_URL"
+          value_source {
+            secret_key_ref {
+              secret  = data.google_secret_manager_secret.supabase_db_url.id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "OPENAI_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = data.google_secret_manager_secret.openai.id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "PINECONE_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = data.google_secret_manager_secret.pinecone.id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "SUPABASE_DB_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = data.google_secret_manager_secret.supabase_db_password.id
+              version = "latest"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 resource "google_cloud_run_service_iam_member" "api_public" {
   location = var.region
   project  = var.project_id
@@ -545,5 +629,27 @@ resource "google_monitoring_alert_policy" "pubsub_dlq" {
         per_series_aligner = "ALIGN_SUM"
       }
     }
+  }
+}
+
+resource "google_cloud_scheduler_job" "reindex_nightly" {
+  name        = "rag-reindex-nightly"
+  description = "Nightly reindex/backfill trigger"
+  schedule    = "0 9 * * *"
+  time_zone   = "Etc/UTC"
+
+  http_target {
+    http_method = "POST"
+    uri         = "https://run.googleapis.com/apis/run.googleapis.com/v2/projects/${var.project_id}/locations/${var.region}/jobs/${google_cloud_run_v2_job.reindex.name}:run"
+
+    oidc_token {
+      service_account_email = google_service_account.ci.email
+    }
+
+    headers = {
+      "Content-Type" = "application/json"
+    }
+
+    body = base64encode("{\"overrides\":{}}")
   }
 }

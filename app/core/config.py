@@ -103,6 +103,53 @@ class RetrievalSettings(BaseModel):
     )
 
 
+class ReindexSettings(BaseModel):
+    """Controls nightly reindex/backfill and drift detection behavior."""
+
+    batch_size: int = Field(
+        default=25,
+        ge=1,
+        le=1_000,
+        description="Maximum number of documents to process per batch.",
+    )
+    max_documents: int = Field(
+        default=200,
+        ge=1,
+        le=10_000,
+        description="Upper bound of documents processed per run to cap spend.",
+    )
+    drift_lookback_days: int = Field(
+        default=1,
+        ge=0,
+        le=30,
+        description="Look back window for detecting stale/old documents.",
+    )
+    stale_after_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        description="Consider documents stale if last indexed before this threshold.",
+    )
+    max_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="How many times to retry failed reindex jobs before giving up.",
+    )
+    queue_poll_limit: int = Field(
+        default=200,
+        ge=1,
+        le=5_000,
+        description="Max queue items fetched per run before batching.",
+    )
+    soft_timeout_seconds: int = Field(
+        default=600,
+        ge=60,
+        le=3_600,
+        description="Soft timeout for a single reindex run (used for logging/alerts).",
+    )
+
+
 class Settings(BaseSettings):
     """Application configuration loaded from YAML with environment overrides."""
 
@@ -119,6 +166,7 @@ class Settings(BaseSettings):
         default_factory=DocumentProcessingSettings
     )
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
+    reindex: ReindexSettings = Field(default_factory=ReindexSettings)
     gcp_project_id: str = Field(
         default="rag-knowledge-base-464616",
         description="Default GCP project ID used for secret access and telemetry.",

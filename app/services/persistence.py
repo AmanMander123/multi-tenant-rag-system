@@ -52,9 +52,17 @@ class MetadataRepository:
             chunk_count integer,
             last_error text,
             submitted_at timestamptz DEFAULT NOW(),
-            updated_at timestamptz DEFAULT NOW()
+            updated_at timestamptz DEFAULT NOW(),
+            last_indexed_at timestamptz,
+            last_schema_version text,
+            last_embedding_model text,
+            reindex_attempts integer DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS documents_tenant_idx ON documents (tenant_id);
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_indexed_at timestamptz;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_schema_version text;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_embedding_model text;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS reindex_attempts integer DEFAULT 0;
 
         CREATE TABLE IF NOT EXISTS chunks (
             chunk_id uuid PRIMARY KEY,
@@ -76,6 +84,22 @@ class MetadataRepository:
         CREATE INDEX IF NOT EXISTS chunks_document_idx ON chunks (document_id);
         CREATE INDEX IF NOT EXISTS chunks_tenant_idx ON chunks (tenant_id);
         CREATE INDEX IF NOT EXISTS chunks_tsv_idx ON chunks USING GIN (tsv);
+
+        CREATE TABLE IF NOT EXISTS reindex_queue (
+            id bigserial PRIMARY KEY,
+            tenant_id text NOT NULL,
+            document_id uuid NOT NULL,
+            reason text DEFAULT 'drift',
+            priority integer DEFAULT 5,
+            status text DEFAULT 'pending',
+            attempts integer DEFAULT 0,
+            last_error text,
+            created_at timestamptz DEFAULT NOW(),
+            updated_at timestamptz DEFAULT NOW(),
+            processed_at timestamptz
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS reindex_queue_unique ON reindex_queue (tenant_id, document_id, reason);
+        CREATE INDEX IF NOT EXISTS reindex_queue_status_idx ON reindex_queue (status, priority, created_at);
         """
         with self._pool.connection() as conn, conn.cursor() as cur:  # type: ignore[union-attr]
             cur.execute(ddl)
@@ -92,19 +116,29 @@ class MetadataRepository:
         chunk_count: int | None = None,
         last_error: str | None = None,
         submitted_at: str | None = None,
+        last_indexed_at: str | None = None,
+        last_schema_version: str | None = None,
+        last_embedding_model: str | None = None,
+        reindex_attempts: int | None = None,
     ) -> None:
         sql = """
         INSERT INTO documents (
             document_id, tenant_id, filename, gcs_uri,
-            status, chunk_count, last_error, submitted_at
+            status, chunk_count, last_error, submitted_at,
+            last_indexed_at, last_schema_version, last_embedding_model, reindex_attempts
         )
         VALUES (%(document_id)s, %(tenant_id)s, %(filename)s, %(gcs_uri)s,
-                %(status)s, %(chunk_count)s, %(last_error)s, %(submitted_at)s)
+                %(status)s, %(chunk_count)s, %(last_error)s, %(submitted_at)s,
+                %(last_indexed_at)s, %(last_schema_version)s, %(last_embedding_model)s, %(reindex_attempts)s)
         ON CONFLICT (document_id)
         DO UPDATE SET
             status = EXCLUDED.status,
             chunk_count = EXCLUDED.chunk_count,
             last_error = EXCLUDED.last_error,
+            last_indexed_at = COALESCE(EXCLUDED.last_indexed_at, documents.last_indexed_at),
+            last_schema_version = COALESCE(EXCLUDED.last_schema_version, documents.last_schema_version),
+            last_embedding_model = COALESCE(EXCLUDED.last_embedding_model, documents.last_embedding_model),
+            reindex_attempts = COALESCE(EXCLUDED.reindex_attempts, documents.reindex_attempts),
             updated_at = NOW();
         """
         params = {
@@ -116,6 +150,10 @@ class MetadataRepository:
             "chunk_count": chunk_count,
             "last_error": last_error,
             "submitted_at": submitted_at,
+            "last_indexed_at": last_indexed_at,
+            "last_schema_version": last_schema_version,
+            "last_embedding_model": last_embedding_model,
+            "reindex_attempts": reindex_attempts,
         }
         try:
             with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
@@ -279,6 +317,163 @@ class MetadataRepository:
             cur.execute(sql_query, params)
             rows = cur.fetchall()
         return rows
+
+    def fetch_document(self, *, tenant_id: str, document_id: str) -> dict | None:
+        """Fetch a single document row for metadata lookup."""
+        sql_query = """
+        SELECT document_id, tenant_id, filename, gcs_uri, status, chunk_count,
+               last_error, submitted_at, updated_at,
+               last_indexed_at, last_schema_version, last_embedding_model, reindex_attempts
+        FROM documents
+        WHERE tenant_id = %(tenant_id)s
+          AND document_id = %(document_id)s;
+        """
+        params = {"tenant_id": tenant_id, "document_id": document_id}
+        with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql_query, params)
+            return cur.fetchone()
+
+    def enqueue_reindex(
+        self,
+        *,
+        tenant_id: str,
+        document_id: str,
+        reason: str = "drift",
+        priority: int = 5,
+    ) -> None:
+        """Add a document to the reindex queue; idempotent by (tenant, doc, reason)."""
+        insert_sql = """
+        INSERT INTO reindex_queue (tenant_id, document_id, reason, priority, status)
+        VALUES (%(tenant_id)s, %(document_id)s, %(reason)s, %(priority)s, 'pending')
+        ON CONFLICT (tenant_id, document_id, reason)
+        DO UPDATE SET
+            status = 'pending',
+            last_error = NULL,
+            updated_at = NOW();
+        """
+        params = {
+            "tenant_id": tenant_id,
+            "document_id": document_id,
+            "reason": reason,
+            "priority": priority,
+        }
+        with self.pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(insert_sql, params)
+
+    def fetch_reindex_queue(
+        self,
+        *,
+        limit: int,
+        max_attempts: int,
+        tenant_id: str | None = None,
+    ) -> list[dict]:
+        """
+        Retrieve pending reindex items joined with document metadata.
+
+        Ordered by priority then FIFO to minimize starvation.
+        """
+        sql_query = """
+        SELECT q.id, q.tenant_id, q.document_id, q.reason, q.priority, q.attempts,
+               q.created_at, q.updated_at,
+               d.filename, d.gcs_uri, d.status, d.chunk_count
+        FROM reindex_queue q
+        JOIN documents d ON d.document_id = q.document_id AND d.tenant_id = q.tenant_id
+        WHERE q.status = 'pending'
+          AND q.attempts < %(max_attempts)s
+          AND (%(tenant_id)s IS NULL OR q.tenant_id = %(tenant_id)s)
+        ORDER BY q.priority DESC, q.created_at ASC
+        LIMIT %(limit)s;
+        """
+        params = {"limit": limit, "max_attempts": max_attempts, "tenant_id": tenant_id}
+        with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql_query, params)
+            return cur.fetchall()
+
+    def mark_reindex_started(self, *, queue_id: int) -> None:
+        sql_query = """
+        UPDATE reindex_queue
+        SET status = 'processing',
+            attempts = attempts + 1,
+            updated_at = NOW()
+        WHERE id = %(id)s;
+        """
+        with self.pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql_query, {"id": queue_id})
+
+    def mark_reindex_success(self, *, queue_id: int) -> None:
+        sql_query = """
+        UPDATE reindex_queue
+        SET status = 'completed',
+            last_error = NULL,
+            processed_at = NOW(),
+            updated_at = NOW()
+        WHERE id = %(id)s;
+        """
+        with self.pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql_query, {"id": queue_id})
+
+    def mark_reindex_failure(self, *, queue_id: int, error: str | None = None) -> None:
+        sql_query = """
+        UPDATE reindex_queue
+        SET status = 'failed',
+            last_error = %(error)s,
+            updated_at = NOW()
+        WHERE id = %(id)s;
+        """
+        with self.pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql_query, {"id": queue_id, "error": error})
+
+    def find_drift_candidates(
+        self,
+        *,
+        target_schema_version: str,
+        target_embedding_model: str,
+        stale_after_days: int,
+        limit: int,
+        tenant_id: str | None = None,
+    ) -> list[dict]:
+        """
+        Detect documents whose chunks are out of sync with the target schema/model or stale.
+        """
+        sql_query = """
+        SELECT DISTINCT d.document_id,
+                        d.tenant_id,
+                        d.filename,
+                        d.gcs_uri,
+                        d.status,
+                        d.chunk_count,
+                        d.last_indexed_at,
+                        d.last_schema_version,
+                        d.last_embedding_model
+        FROM documents d
+        WHERE d.status IN ('completed', 'processing')
+          AND (%(tenant_id)s IS NULL OR d.tenant_id = %(tenant_id)s)
+          AND (
+            d.last_schema_version IS DISTINCT FROM %(target_schema)s
+            OR d.last_embedding_model IS DISTINCT FROM %(target_embedding)s
+            OR (d.last_indexed_at IS NULL OR d.last_indexed_at < NOW() - (%(stale_after_days)s || ' days')::interval)
+            OR EXISTS (
+                SELECT 1 FROM chunks c
+                WHERE c.document_id = d.document_id
+                  AND c.tenant_id = d.tenant_id
+                  AND (c.schema_version IS DISTINCT FROM %(target_schema)s
+                       OR c.embedding_model IS DISTINCT FROM %(target_embedding)s)
+                LIMIT 1
+            )
+          )
+        ORDER BY d.updated_at DESC
+        LIMIT %(limit)s;
+        """
+        params = {
+            "tenant_id": tenant_id,
+            "target_schema": target_schema_version,
+            "target_embedding": target_embedding_model,
+            "stale_after_days": stale_after_days,
+            "limit": limit,
+        }
+        with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql_query, params)
+            return cur.fetchall()
 
 
 class PineconeVectorStore:
