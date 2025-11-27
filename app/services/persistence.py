@@ -444,7 +444,8 @@ class MetadataRepository:
                         d.chunk_count,
                         d.last_indexed_at,
                         d.last_schema_version,
-                        d.last_embedding_model
+                        d.last_embedding_model,
+                        d.updated_at
         FROM documents d
         WHERE d.status IN ('completed', 'processing')
           AND (%(tenant_id)s IS NULL OR d.tenant_id = %(tenant_id)s)
