@@ -1,11 +1,11 @@
 # LLM-Powered Multi-Tenant RAG System
 
-I am building a multi-tenant, production-ready Retrieval-Augmented Generation (RAG) platform. The mission is to prove how to ship a tenant-isolated, cloud-native AI system on Google Cloud that can ingest millions of documents while keeping guardrails, observability, and automation front and center.
+I am building a multi-tenant, production-ready Retrieval-Augmented Generation (RAG) platform. The mission is to ship a tenant-isolated, cloud-native AI system on Google Cloud that can ingest millions of documents while keeping guardrails, observability, and automation front and center.
 
 ---
 
-## Current Build — Data Pipeline ✅
-The Data Pipeline pillar from the architecture is almost complete (Automation & Drift is still on deck). Every component now runs against managed GCP services so the remaining pillars can be layered in quickly.
+## Current Build — Data Pipeline + Automation/Drift ✅
+The Data Pipeline pillar now includes nightly reindexing and drift control. Every component runs against managed GCP services so the remaining pillars can be layered in quickly.
 
 ### Cloud-native ingestion surface
 - **FastAPI on Cloud Run** exposes `POST /api/v1/ingestion/documents`, propagates request + tenant context, and optionally enforces Supabase JWT auth (full auth functionality coming soon!).
@@ -19,39 +19,43 @@ The Data Pipeline pillar from the architecture is almost complete (Automation & 
 - **Vector persistence**: embeddings are upserted into Pinecone using per-tenant namespaces, while chunk counts/errors remain in Supabase for dashboards and admin tooling.
 - **Operational hardening**: message retries vs. permanent failures, request-scoped temp files, and explicit schema versions keep the worker resilient.
 
+### Automation & drift control
+- **Drift detector + queue**: stale or schema/model-mismatched documents are auto-enqueued (`reindex_queue`) with reasons/priorities.
+- **Nightly reindex job**: `app/workers/reindex_job.py` replays ingestion (download ➜ chunk ➜ embed ➜ Postgres BM25 ➜ Pinecone) and refreshes audit fields.
+- **Cloud Run Job + Scheduler**: Terraform provisions `rag-reindex` and a nightly trigger with OIDC via the CI service account.
+- **Visibility & safety rails**: queue attempts/errors, job duration, and processed counts are emitted as structured logs for alerting; per-tenant namespaces keep replays isolated.
+
 ### Security & observability groundwork
 - **SupabaseAuthMiddleware** is already wired in so JWT claims, quotas, and tenant IDs flow through the stack before a UI even exists.
 - **Structured logging everywhere**: the logger carries metadata across API ➜ Pub/Sub ➜ worker, paving the way for Cloud Logging dashboards, OpenTelemetry traces, and Slack/Pager alerts.
 - **Principle of least privilege**: Cloud Run, Pub/Sub, Storage, Pinecone, Supabase, and Secret Manager interactions are isolated per role; no sensitive values live in git.
 
 ### Remaining Data Pipeline tasks
-- Nightly ETL / delta re-index workflows.
-- Retriever drift monitoring and Slack alerts when embeddings skew.
+- Expose an admin API/CLI to manually enqueue reindex work (beyond drift auto-detection).
+- Add log-based metrics + alerts for reindex queue depth and success/failure rates.
+- Harden cold storage lifecycle policies and retention for uploaded PDFs.
 
 ---
 
-## Roadmap — Retrieval ➜ LLM Core ➜ Backend ➜ Frontend
-I am tackling the rest of the architecture column by column so followers can see the system evolve.
+## Roadmap — Next Pillars
+### Retrieval Quality Loop
+- Stand up eval datasets + harness (Precision@K/Recall/MRR, latency/cost) that gate deploys.
+- Pipe eval + runtime retrieval metrics into dashboards and refine reranker blend weights per tenant.
 
-### Retrieval Engine
-- Launch the hybrid retriever: Pinecone dense vectors + BM25 (likely Firestore/Elastic) with a cross-encoder reranker.
-- Automate chunk upserts/backfills so reprocessing stays idempotent across tenants.
-- Ship evaluation harnesses (Precision@K, Recall, MRR) plus latency/cost telemetry per query profile.
+### Tenant-Grade Access & Limits
+- Enforce auth on `/ask` + ingestion, issue API keys/JWT validation, and add quotas/rate limits.
+- Add idempotency keys, request-size guards, and noisy-tenant protections.
 
-### LLM Core
-- Build an orchestrator that routes to the best LLM per request (quality vs. cost) and streams/tool-calls responses.
-- Introduce YAML-driven prompt management with versioning, canary/AB toggles, and rollbacks.
-- Add guardrails (PII and safety filters, jailbreak defenses) plus semantic + response caches to cut costs.
+### LLM Orchestrator & Guardrails
+- Introduce a model router for quality/cost-aware selection, streaming, and tool/function calling.
+- YAML prompt templates with versioning/canary/rollback plus safety/PII filters and structured request/response validation.
 
-### Backend Platform & Ops
-- Expand the FastAPI surface (`/ask`, `/index`, `/eval`, `/admin`) with pagination, streaming, rate limits, and idempotency keys.
-- Harden platform controls: API keys, quotas, tenant isolation, secrets service, and audit trails.
-- Terraform everything (Cloud Run, Pub/Sub, Storage, Firestore, Secret Manager) and ship GitHub Actions ➜ Cloud Run blue/green deploys.
+### Observability First
+- Instrument OpenTelemetry spans across ingestion → retrieval → rerank; add metrics for hit@K, rerank latency, and store errors.
+- Wire alerting policies to SLOs (Cloud Monitoring/LangSmith/Slack/PagerDuty).
 
-### Frontend & Observability
-- Ship a Vite/React chat workspace with tenant-aware history, admin dashboards, and ingestion telemetry.
-- Observability stack: OpenTelemetry traces, LangSmith spans, structured logs, custom metrics, Slack/Pager alerts tied to SLOs.
-- Feedback & eval loops: thumbs up/down into Supabase, Ragas/custom eval harness, and win-rate dashboards.
+### Tenant-Facing UI/Admin
+- Build a thin chat + ingestion dashboard (React/Vite) with session history and eval feedback loops backed by the existing APIs.
 
 ---
 
