@@ -132,6 +132,13 @@ resource "google_secret_manager_secret_iam_member" "worker_pinecone" {
   member    = "serviceAccount:${google_service_account.worker.email}"
 }
 
+resource "google_secret_manager_secret_iam_member" "api_langsmith" {
+  project   = var.project_id
+  secret_id = data.google_secret_manager_secret.langsmith_api_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.api.email}"
+}
+
 resource "google_secret_manager_secret_iam_member" "worker_langsmith" {
   project   = var.project_id
   secret_id = data.google_secret_manager_secret.langsmith_api_key.id
@@ -298,6 +305,7 @@ resource "google_cloud_run_v2_service" "api" {
   depends_on = [
     google_storage_bucket_iam_member.api_uploader,
     google_secret_manager_secret_iam_member.api_supabase_config,
+    google_secret_manager_secret_iam_member.api_langsmith,
     google_pubsub_topic.ingestion
   ]
 
@@ -333,6 +341,16 @@ resource "google_cloud_run_v2_service" "api" {
       env {
         name  = "LANGCHAIN_PROJECT"
         value = var.langsmith_project
+      }
+
+      env {
+        name = "LANGCHAIN_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = data.google_secret_manager_secret.langsmith_api_key.id
+            version = "latest"
+          }
+        }
       }
 
       env {
