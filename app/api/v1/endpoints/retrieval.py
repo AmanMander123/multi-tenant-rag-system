@@ -24,7 +24,6 @@ class AskRequest(BaseModel):
     status_code=status.HTTP_200_OK,
     summary="Hybrid retrieval across dense + BM25 + reranker.",
 )
-@traceable(run_type="chain", name="ask_endpoint")
 async def ask(request: Request, payload: AskRequest):
     auth_context = getattr(request.state, "auth_context", None)
     tenant_id = getattr(auth_context, "tenant_id", None) or settings.default_tenant_id
@@ -35,7 +34,13 @@ async def ask(request: Request, payload: AskRequest):
             "Received retrieval request.",
             extra={"tenant_id": tenant_id},
         )
-        response = retriever.retrieve(query=payload.query, tenant_id=tenant_id)
+
+        @traceable(run_type="chain", name="ask_endpoint")
+        def traced_retrieve():
+            return retriever.retrieve(query=payload.query, tenant_id=tenant_id)
+
+        response = traced_retrieve()
+
         logger.info(
             "Retrieval completed.",
             extra={
