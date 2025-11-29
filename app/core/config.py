@@ -157,6 +157,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         env_nested_delimiter="__",
+        extra="ignore",  # allow undeclared env vars for services that read os.environ directly
     )
 
     project_name: str
@@ -203,6 +204,14 @@ class Settings(BaseSettings):
         default="auth.virtualassistant460209.supabase.co",
         description="Expected audience claim for Supabase-issued JWTs.",
     )
+    supabase_db_url: str | None = Field(
+        default=None,
+        description="Supabase Postgres connection URL (without password)."
+    )
+    supabase_db_password: str | None = Field(
+        default=None,
+        description="Supabase Postgres password."
+    )
     supabase_auth_required: bool = Field(
         default=False,
         description="Whether every request must provide a valid Supabase JWT.",
@@ -210,6 +219,14 @@ class Settings(BaseSettings):
     firestore_collection_namespace: str = Field(
         default="tenants",
         description="Firestore collection name for tenant metadata.",
+    )
+    openai_api_key: str | None = Field(
+        default=None,
+        description="Local override for OpenAI API key; falls back to Secret Manager in production.",
+    )
+    pinecone_api_key: str | None = Field(
+        default=None,
+        description="Pinecone API key; can also be provided via PINECONE_API_KEY env var.",
     )
     pinecone_index_name: str | None = Field(
         default="rag-embeddings-prod-gcp-1a",

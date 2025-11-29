@@ -28,4 +28,5 @@ dependencies = [
     "psycopg-pool==3.2.1",
     "redis==5.0.4",
     "openai>=1.40.0",
+    "langsmith>=0.1.147",
 ]

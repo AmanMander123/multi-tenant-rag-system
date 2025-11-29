@@ -41,8 +41,9 @@ class PDFEmbeddingPipeline:
 
         if provider == "openai":
             settings = get_settings()
-            api_key = fetch_secret(
-                settings.openai_secret_name, settings.openai_secret_version
+            api_key = (
+                settings.openai_api_key
+                or fetch_secret(settings.openai_secret_name, settings.openai_secret_version)
             )
             if not api_key:
                 raise ServerException(
