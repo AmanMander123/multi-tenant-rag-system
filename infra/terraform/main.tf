@@ -399,16 +399,6 @@ resource "google_cloud_run_v2_service" "api" {
       }
 
       env {
-        name = "LANGCHAIN_API_KEY"
-        value_source {
-          secret_key_ref {
-            secret  = data.google_secret_manager_secret.langsmith_api_key.id
-            version = "latest"
-          }
-        }
-      }
-
-      env {
         name = "PINECONE_API_KEY"
         value_source {
           secret_key_ref {
