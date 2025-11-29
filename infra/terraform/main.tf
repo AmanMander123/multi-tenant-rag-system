@@ -90,6 +90,11 @@ data "google_secret_manager_secret" "pinecone" {
   secret_id = "pinecone-api-key"
 }
 
+data "google_secret_manager_secret" "langsmith_api_key" {
+  project   = var.project_id
+  secret_id = var.langsmith_api_key_secret_id
+}
+
 data "google_secret_manager_secret" "supabase_jwt_aud" {
   project   = var.project_id
   secret_id = "supabase-jwt-aud"
@@ -123,6 +128,13 @@ resource "google_secret_manager_secret_iam_member" "worker_openai" {
 resource "google_secret_manager_secret_iam_member" "worker_pinecone" {
   project   = var.project_id
   secret_id = data.google_secret_manager_secret.pinecone.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.worker.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "worker_langsmith" {
+  project   = var.project_id
+  secret_id = data.google_secret_manager_secret.langsmith_api_key.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.worker.email}"
 }
@@ -309,6 +321,21 @@ resource "google_cloud_run_v2_service" "api" {
       }
 
       env {
+        name  = "LANGCHAIN_TRACING_V2"
+        value = "true"
+      }
+
+      env {
+        name  = "LANGCHAIN_ENDPOINT"
+        value = var.langsmith_endpoint
+      }
+
+      env {
+        name  = "LANGCHAIN_PROJECT"
+        value = var.langsmith_project
+      }
+
+      env {
         name  = "GCLOUD_PROJECT"
         value = var.project_id
       }
@@ -348,6 +375,16 @@ resource "google_cloud_run_v2_service" "api" {
         value_source {
           secret_key_ref {
             secret  = data.google_secret_manager_secret.openai.id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "LANGCHAIN_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = data.google_secret_manager_secret.langsmith_api_key.id
             version = "latest"
           }
         }
@@ -403,6 +440,7 @@ resource "google_cloud_run_v2_service" "worker" {
     google_storage_bucket_iam_member.worker_temp_writer,
     google_secret_manager_secret_iam_member.worker_openai,
     google_secret_manager_secret_iam_member.worker_pinecone,
+    google_secret_manager_secret_iam_member.worker_langsmith,
     google_secret_manager_secret_iam_member.worker_supabase_db,
     google_secret_manager_secret_iam_member.worker_supabase_db_url,
     google_pubsub_subscription.worker
@@ -509,6 +547,7 @@ resource "google_cloud_run_v2_job" "reindex" {
     google_storage_bucket_iam_member.worker_temp_writer,
     google_secret_manager_secret_iam_member.worker_openai,
     google_secret_manager_secret_iam_member.worker_pinecone,
+    google_secret_manager_secret_iam_member.worker_langsmith,
     google_secret_manager_secret_iam_member.worker_supabase_db,
     google_secret_manager_secret_iam_member.worker_supabase_db_url
   ]
@@ -524,6 +563,21 @@ resource "google_cloud_run_v2_job" "reindex" {
         env {
           name  = "APP_ENV"
           value = "prod"
+        }
+
+        env {
+          name  = "LANGCHAIN_TRACING_V2"
+          value = "true"
+        }
+
+        env {
+          name  = "LANGCHAIN_ENDPOINT"
+          value = var.langsmith_endpoint
+        }
+
+        env {
+          name  = "LANGCHAIN_PROJECT"
+          value = var.langsmith_project
         }
 
         env {
@@ -556,6 +610,16 @@ resource "google_cloud_run_v2_job" "reindex" {
           value_source {
             secret_key_ref {
               secret  = data.google_secret_manager_secret.openai.id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "LANGCHAIN_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = data.google_secret_manager_secret.langsmith_api_key.id
               version = "latest"
             }
           }

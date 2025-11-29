@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence
 
 from langchain_openai import OpenAIEmbeddings
-from openai import OpenAI
+from langchain_openai import ChatOpenAI
+from langsmith import traceable
 
 from app.core.config import get_settings
 from app.core.secrets import fetch_secret
@@ -70,10 +71,14 @@ class OpenAIReranker:
         )
         if not api_key:
             raise RuntimeError("OpenAI API key missing; cannot rerank.")
-        self._client = OpenAI(api_key=api_key)
-        self._model = settings.retrieval.reranker_model
-        self._timeout = settings.retrieval.reranker_timeout_seconds
+        self._llm = ChatOpenAI(
+            api_key=api_key,
+            model=settings.retrieval.reranker_model,
+            temperature=0,
+            timeout=settings.retrieval.reranker_timeout_seconds,
+        )
 
+    @traceable(run_type="chain", name="rerank")
     def rerank(self, query: str, candidates: Sequence[Candidate], top_k: int) -> list[Candidate]:
         if not candidates:
             return []
@@ -101,14 +106,11 @@ class OpenAIReranker:
         ]
 
         try:
-            response = self._client.chat.completions.create(
-                model=self._model,
-                messages=request_messages,
-                temperature=0,
-                response_format={"type": "json_object"},
-                timeout=self._timeout,
+            response = self._llm.invoke(
+                request_messages,
+                extra_body={"response_format": {"type": "json_object"}},
             )
-            content = response.choices[0].message.content or "{}"
+            content = getattr(response, "content", None) or "{}"
             parsed = self._safe_json_parse(content)
             scored = parsed.get("scores") or []
             score_map = {str(item.get("chunk_id")): float(item.get("score", 0)) for item in scored}
@@ -159,6 +161,7 @@ class HybridRetriever:
         self._reranker = OpenAIReranker()
         self._cfg = settings.retrieval
 
+    @traceable(run_type="chain", name="hybrid_retrieve")
     def retrieve(
         self,
         *,
