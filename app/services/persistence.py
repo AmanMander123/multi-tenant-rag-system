@@ -481,7 +481,7 @@ class PineconeVectorStore:
     """Handles embedding persistence into Pinecone."""
 
     def __init__(self) -> None:
-        api_key = os.environ.get("PINECONE_API_KEY")
+        api_key = settings.pinecone_api_key or os.environ.get("PINECONE_API_KEY")
         index_name = settings.pinecone_index_name
         if not api_key or not index_name:
             raise RuntimeError("Pinecone credentials are not configured.")
@@ -578,8 +578,8 @@ class PineconeVectorStore:
 
 
 def _build_connection_dsn() -> str:
-    db_url = os.environ.get("SUPABASE_DB_URL")
-    db_password = os.environ.get("SUPABASE_DB_PASSWORD")
+    db_url = settings.supabase_db_url or os.environ.get("SUPABASE_DB_URL")
+    db_password = settings.supabase_db_password or os.environ.get("SUPABASE_DB_PASSWORD")
     if not db_url or not db_password:
         raise RuntimeError("Supabase DB credentials are not configured.")
 

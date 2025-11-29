@@ -45,7 +45,10 @@ class QueryEmbedder:
     """Embed queries with the same model used for ingestion chunks."""
 
     def __init__(self) -> None:
-        api_key = fetch_secret(settings.openai_secret_name, settings.openai_secret_version)
+        api_key = (
+            settings.openai_api_key
+            or fetch_secret(settings.openai_secret_name, settings.openai_secret_version)
+        )
         if not api_key:
             raise RuntimeError("OpenAI API key missing; cannot embed queries.")
         self._embedder = OpenAIEmbeddings(
@@ -61,7 +64,10 @@ class OpenAIReranker:
     """Cross-encoder style reranker using OpenAI chat completion."""
 
     def __init__(self) -> None:
-        api_key = fetch_secret(settings.openai_secret_name, settings.openai_secret_version)
+        api_key = (
+            settings.openai_api_key
+            or fetch_secret(settings.openai_secret_name, settings.openai_secret_version)
+        )
         if not api_key:
             raise RuntimeError("OpenAI API key missing; cannot rerank.")
         self._client = OpenAI(api_key=api_key)
