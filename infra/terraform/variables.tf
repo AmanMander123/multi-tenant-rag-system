@@ -55,3 +55,21 @@ variable "firestore_collection_namespace" {
   type        = string
   default     = "tenants"
 }
+
+variable "langsmith_project" {
+  description = "LangSmith project name to tag traces."
+  type        = string
+  default     = "multi-tenant-rag-prod"
+}
+
+variable "langsmith_endpoint" {
+  description = "LangSmith API endpoint."
+  type        = string
+  default     = "https://api.smith.langchain.com"
+}
+
+variable "langsmith_api_key_secret_id" {
+  description = "Secret Manager ID storing the LangSmith API key."
+  type        = string
+  default     = "langsmith-api-key"
+}

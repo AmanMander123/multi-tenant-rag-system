@@ -3,6 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Request, status
 from pydantic import BaseModel, Field
 
+from langsmith import traceable
+
 from app.core.config import get_settings
 from app.logger import get_logger, log_context
 from app.services.retrieval_engine import HybridRetriever
@@ -22,6 +24,7 @@ class AskRequest(BaseModel):
     status_code=status.HTTP_200_OK,
     summary="Hybrid retrieval across dense + BM25 + reranker.",
 )
+@traceable(run_type="chain", name="ask_endpoint")
 async def ask(request: Request, payload: AskRequest):
     auth_context = getattr(request.state, "auth_context", None)
     tenant_id = getattr(auth_context, "tenant_id", None) or settings.default_tenant_id
