@@ -45,10 +45,10 @@ def _get_openai_key() -> str:
 def _ensure_dataset(client: Client, rows: Iterable[dict[str, str]]) -> str:
     """Create or update the LangSmith dataset if needed and return its name."""
     try:
-        dataset = client.read_dataset(name=DATASET_NAME)
+        dataset = client.read_dataset(dataset_name=DATASET_NAME)
     except Exception:
         dataset = client.create_dataset(
-            name=DATASET_NAME,
+            dataset_name=DATASET_NAME,
             description="Q&A pairs taken from the Apple 2025 Form 10-K filing.",
         )
 
@@ -68,7 +68,7 @@ def _ensure_dataset(client: Client, rows: Iterable[dict[str, str]]) -> str:
             dataset_id=dataset.id,
         )
     logger.info("Added %s new rows to dataset '%s'.", len(new_rows), dataset.name)
-    return dataset.name
+    return getattr(dataset, "name", None) or getattr(dataset, "dataset_name", None) or DATASET_NAME
 
 
 def _make_answer_llm(model: str | None = None) -> ChatOpenAI:
@@ -151,7 +151,7 @@ def run_aapl_10k_eval(
         experiment_prefix=EXPERIMENT_PREFIX,
         metadata={
             "tenant_id": tenant_id or settings.default_tenant_id,
-            "dataset": dataset_name,
+        "dataset": dataset_name,
             "model": model or settings.retrieval.reranker_model,
         },
         client=client,
