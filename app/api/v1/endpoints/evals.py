@@ -42,9 +42,13 @@ async def run_aapl_10k_evals(payload: EvalRequest):
         extra={"limit": payload.limit, "model": payload.model, "tenant_id": payload.tenant_id},
     )
     result = run_aapl_10k_eval(limit=payload.limit, model=payload.model, tenant_id=payload.tenant_id)
-    logger.info("Eval completed.", extra={"experiment_url": result.get("url")})
+    url = getattr(result, "url", None) or getattr(result, "share_url", None) or getattr(result, "web_url", None)
+    name = getattr(result, "name", None) or getattr(result, "project_name", None) or getattr(result, "experiment_name", None)
+    dataset_name = getattr(result, "dataset_name", None) or "aapl-10k-retrieval"
+
+    logger.info("Eval completed.", extra={"experiment_url": url})
     return {
-        "experiment_name": result.get("name"),
-        "experiment_url": result.get("url"),
-        "dataset": result.get("dataset_name") or "aapl-10k-retrieval",
+        "experiment_name": name,
+        "experiment_url": url,
+        "dataset": dataset_name,
     }

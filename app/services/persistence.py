@@ -4,6 +4,7 @@ import os
 import urllib.parse
 from hashlib import sha256
 from typing import Iterable, List, Optional, Sequence
+import threading
 
 import psycopg
 from psycopg import sql
@@ -22,6 +23,8 @@ settings = get_settings()
 
 class MetadataRepository:
     """Writes ingestion metadata + statuses into Supabase Postgres."""
+
+    _ensure_lock = threading.Lock()
 
     def __init__(self) -> None:
         self._connection_string = _build_connection_dsn()
@@ -42,6 +45,11 @@ class MetadataRepository:
         return self._pool
 
     def _ensure_tables(self) -> None:
+        if self._tables_ready:
+            return
+        with self._ensure_lock:
+            if self._tables_ready:
+                return
         ddl = """
         CREATE TABLE IF NOT EXISTS documents (
             document_id uuid PRIMARY KEY,
