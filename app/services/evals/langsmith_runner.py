@@ -140,23 +140,24 @@ def run_aapl_10k_eval(
         },
     )
 
+    dataset_data = rows[:limit] if limit else dataset_name
+
     experiment = evaluate(
         lambda inputs: _answer_question(
             inputs["input"],
             tenant_id=tenant_id or inputs.get("tenant_id") or settings.default_tenant_id,
             llm=llm,
         ),
-        data=dataset_name,
+        data=dataset_data,
         evaluators=[qa_eval],
         experiment_prefix=EXPERIMENT_PREFIX,
         metadata={
             "tenant_id": tenant_id or settings.default_tenant_id,
-        "dataset": dataset_name,
+            "dataset": dataset_name,
             "model": model or settings.retrieval.reranker_model,
         },
         client=client,
         max_concurrency=3,
-        first_n=limit,
     )
     return experiment
 
