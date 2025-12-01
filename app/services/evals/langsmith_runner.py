@@ -140,7 +140,12 @@ def run_aapl_10k_eval(
         },
     )
 
-    dataset_data = rows[:limit] if limit else dataset_name
+    if limit:
+        # Grab existing examples so we keep LangSmith metadata intact.
+        examples = list(client.list_examples(dataset_name=dataset_name))[:limit]
+        dataset_data = examples
+    else:
+        dataset_data = dataset_name
 
     experiment = evaluate(
         lambda inputs: _answer_question(
