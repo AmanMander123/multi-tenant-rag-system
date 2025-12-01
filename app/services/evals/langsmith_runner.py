@@ -112,11 +112,8 @@ def _answer_question(question: str, *, tenant_id: str, llm: ChatOpenAI) -> dict:
     response = llm.invoke(messages)
     answer = getattr(response, "content", "") if response else ""
 
-    return {
-        "answer": answer,
-        "retrieval_results": retrieval["results"],
-        "diagnostics": retrieval["diagnostics"],
-    }
+    # Return a single output key so LLM-as-judge evaluators don't fail on multiple predictions.
+    return {"answer": answer}
 
 
 def run_aapl_10k_eval(
@@ -162,7 +159,7 @@ def run_aapl_10k_eval(
             "model": model or settings.retrieval.reranker_model,
         },
         client=client,
-        max_concurrency=3,
+        max_concurrency=1,
     )
     return experiment
 
