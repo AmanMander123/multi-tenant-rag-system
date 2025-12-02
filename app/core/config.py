@@ -57,6 +57,76 @@ class DocumentProcessingSettings(BaseModel):
         description="Embedding model identifier for the selected provider.",
     )
 
+class LLMSettings(BaseModel):
+    """Model routing and generation behavior."""
+
+    default_model: str = Field(
+        default="gpt-4o-mini",
+        description="Primary chat/completion model for orchestrated responses.",
+    )
+    fallback_models: list[str] = Field(
+        default_factory=lambda: ["gpt-4o-mini"],
+        description="Ordered list of backup models to try if the primary fails.",
+    )
+    temperature: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Generation temperature.",
+    )
+    max_tokens: int = Field(
+        default=800,
+        ge=64,
+        le=4_096,
+        description="Upper bound on response tokens.",
+    )
+
+
+class PromptSettings(BaseModel):
+    """Prompt registry defaults."""
+
+    default_name: str = Field(
+        default="default",
+        description="Default prompt pack name.",
+    )
+    default_version: str = Field(
+        default="2024-10-01",
+        description="Default prompt version tag.",
+    )
+    path: str = Field(
+        default="prompts",
+        description="Folder containing prompt YAML files.",
+    )
+
+
+class GuardrailSettings(BaseModel):
+    """Safety and PII redaction controls."""
+
+    enable_pii_redaction: bool = Field(
+        default=True,
+        description="Redact common PII patterns in user and model text.",
+    )
+    enable_prompt_injection_block: bool = Field(
+        default=True,
+        description="Block requests that look like prompt injection/jailbreak attempts.",
+    )
+    max_input_chars: int = Field(
+        default=6_000,
+        ge=500,
+        le=20_000,
+        description="Hard cap on user input size to avoid prompt stuffing.",
+    )
+    banned_phrases: list[str] = Field(
+        default_factory=lambda: [
+            "ignore previous instructions",
+            "disregard above",
+            "you are now",
+            "system override",
+            "forget prior",
+        ],
+        description="Lowercased phrases that trigger prompt-injection blocking.",
+    )
+
 
 class RetrievalSettings(BaseModel):
     """Hybrid retrieval configuration (dense + lexical + rerank)."""
@@ -166,6 +236,9 @@ class Settings(BaseSettings):
     processing: DocumentProcessingSettings = Field(
         default_factory=DocumentProcessingSettings
     )
+    llm: LLMSettings = Field(default_factory=LLMSettings)
+    prompts: PromptSettings = Field(default_factory=PromptSettings)
+    guardrails: GuardrailSettings = Field(default_factory=GuardrailSettings)
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
     reindex: ReindexSettings = Field(default_factory=ReindexSettings)
     gcp_project_id: str = Field(

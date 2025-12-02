@@ -10,6 +10,26 @@ processing:
   chunk_overlap: 200
   embedding_provider: "openai"
   embedding_model: "text-embedding-3-small"
+llm:
+  default_model: "gpt-4o-mini"
+  fallback_models:
+    - "gpt-4o-mini"
+  temperature: 0.0
+  max_tokens: 800
+prompts:
+  default_name: "default"
+  default_version: "2024-10-01"
+  path: "prompts"
+guardrails:
+  enable_pii_redaction: true
+  enable_prompt_injection_block: true
+  max_input_chars: 6000
+  banned_phrases:
+    - "ignore previous instructions"
+    - "disregard above"
+    - "you are now"
+    - "system override"
+    - "forget prior"
 retrieval:
   dense_top_n: 20
   bm25_top_m: 20
