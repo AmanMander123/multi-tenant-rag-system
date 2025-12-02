@@ -4,8 +4,8 @@ I am building a multi-tenant, production-ready Retrieval-Augmented Generation (R
 
 ---
 
-## Current Build — Data Pipeline + Automation/Drift ✅
-The Data Pipeline pillar now includes nightly reindexing and drift control. Every component runs against managed GCP services so the remaining pillars can be layered in quickly.
+## Current Build — Data Pipeline + Retrieval + Orchestration ✅
+The core data + retrieval + chat pillars are live with nightly reindexing and guardrails. Everything runs against managed GCP services so remaining work is additive (auth, observability, UI).
 
 ### Cloud-native ingestion surface
 - **FastAPI on Cloud Run** exposes `POST /api/v1/ingestion/documents`, propagates request + tenant context, and optionally enforces Supabase JWT auth (full auth functionality coming soon!).
@@ -25,37 +25,50 @@ The Data Pipeline pillar now includes nightly reindexing and drift control. Ever
 - **Cloud Run Job + Scheduler**: Terraform provisions `rag-reindex` and a nightly trigger with OIDC via the CI service account.
 - **Visibility & safety rails**: queue attempts/errors, job duration, and processed counts are emitted as structured logs for alerting; per-tenant namespaces keep replays isolated.
 
+### Retrieval engine
+- **Hybrid dense + BM25 + rerank** in `app/services/retrieval_engine.py` with tenant namespaces, schema/version tracking, and OpenAI cross-encoder reranking.
+- **/api/v1/ask** endpoint runs the hybrid pipeline with LangSmith tracing hooks and structured logging of dense/lexical hits.
+- **Config-first tuning**: per-tenant namespace, tsvector config, top-K counts, reranker model/timeout, and schema version captured in `app/core/config.yaml`.
+
+### Evals
+- **Offline retrieval metrics harness** (`app/services/evals/retrieval_eval.py`) with Precision@K/Recall/MRR and swappable eval stores.
+- **LangSmith runner** (`app/services/evals/langsmith_runner.py`) seeds an Apple 10-K dataset and runs LLM-as-judge evals end-to-end for RAG answers.
+
+### Orchestration + guardrails
+- **Chat orchestrator** (`app/services/orchestrator.py`) wires guardrails → hybrid retrieval → prompt render → OpenAI with model fallbacks; supports streaming.
+- **Prompt registry** (`app/services/prompt_registry.py`) loads versioned YAML templates (`prompts/default.yml`) with overridable name/version per request.
+- **Guardrails** (`app/services/guardrails.py`) enforce input size limits, prompt-injection heuristics, PII redaction in/out, and history summarization.
+- **/api/v1/chat** endpoint returns full JSON responses or text streams, carrying `tenant_id` from Supabase auth middleware.
+
 ### Security & observability groundwork
 - **SupabaseAuthMiddleware** is already wired in so JWT claims, quotas, and tenant IDs flow through the stack before a UI even exists.
 - **Structured logging everywhere**: the logger carries metadata across API ➜ Pub/Sub ➜ worker, paving the way for Cloud Logging dashboards, OpenTelemetry traces, and Slack/Pager alerts.
 - **Principle of least privilege**: Cloud Run, Pub/Sub, Storage, Pinecone, Supabase, and Secret Manager interactions are isolated per role; no sensitive values live in git.
 
-### Remaining Data Pipeline tasks
+### Remaining near-term tasks
 - Expose an admin API/CLI to manually enqueue reindex work (beyond drift auto-detection).
-- Add log-based metrics + alerts for reindex queue depth and success/failure rates.
-- Harden cold storage lifecycle policies and retention for uploaded PDFs.
+- Add log-based metrics + alerts for reindex queue depth, retrieval latency, and chat guardrail blocks.
+- Enforce auth + quotas on `/ask` and `/chat`, add rate limits, and surface idempotency keys.
+- Instrument OpenTelemetry spans across ingestion → retrieval → chat; publish hit@K, rerank timing, and LLM latency to dashboards/alerts.
+- Add UI/Admin surfaces for chat + ingestion dashboards with session history and eval feedback.
 
 ---
 
 ## Roadmap — Next Pillars
 ### Retrieval Quality Loop
-- Stand up eval datasets + harness (Precision@K/Recall/MRR, latency/cost) that gate deploys.
-- Pipe eval + runtime retrieval metrics into dashboards and refine reranker blend weights per tenant.
+- Gate deploys with eval runs (Precision@K/Recall/MRR, cost/latency) and tenant-specific blend/rerank tuning.
+- Add runtime retrieval metrics + dashboards; experiment with semantic caches and rerank alternatives.
 
 ### Tenant-Grade Access & Limits
-- Enforce auth on `/ask` + ingestion, issue API keys/JWT validation, and add quotas/rate limits.
-- Add idempotency keys, request-size guards, and noisy-tenant protections.
-
-### LLM Orchestrator & Guardrails
-- Introduce a model router for quality/cost-aware selection, streaming, and tool/function calling.
-- YAML prompt templates with versioning/canary/rollback plus safety/PII filters and structured request/response validation.
+- Enforce auth on `/ask` + `/chat`, issue API keys/JWT validation, and add quotas/rate limits per tenant.
+- Idempotency keys, request-size guards, DLQ processing, and noisy-tenant protections.
 
 ### Observability First
-- Instrument OpenTelemetry spans across ingestion → retrieval → rerank; add metrics for hit@K, rerank latency, and store errors.
-- Wire alerting policies to SLOs (Cloud Monitoring/LangSmith/Slack/PagerDuty).
+- End-to-end OpenTelemetry spans (ingestion → retrieval → chat), structured logs, and metrics for hit@K, rerank timing, cache hit rate, and LLM latency.
+- SLO-driven alerts to Slack/PagerDuty; LangSmith tracing rolled into dashboards.
 
 ### Tenant-Facing UI/Admin
-- Build a thin chat + ingestion dashboard (React/Vite) with session history and eval feedback loops backed by the existing APIs.
+- React/Vite chat + ingestion dashboard with session history, feedback loops, and eval visibility backed by the existing APIs.
 
 ---
 
@@ -97,9 +110,25 @@ Even though the stack targets managed services, you can iterate locally with the
    ```
    The API uploads to Cloud Storage, publishes a Pub/Sub message, and the worker logs chunk + Pinecone upsert counts.
 
+6. **Ask a question through chat orchestration**
+   ```bash
+   curl -X POST "http://localhost:8000/api/v1/chat" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "message": "Summarize the SLA obligations.",
+       "prompt_version": "2024-10-01",
+       "stream": false
+     }'
+   ```
+   The response includes the chosen model, prompt metadata, retrieved context, and answer. Set `"stream": true` to receive a text stream instead.
+
+7. **Run retrieval or RAG evals**
+   - Offline retrieval metrics: use `RetrievalEvalHarness` with your qrels (see `app/services/evals/retrieval_eval.py`).
+   - LangSmith RAG eval: `uv run python app/services/evals/langsmith_runner.py --limit 5` (requires LangSmith API key/env).
+
 > Tip: assign yourself a Dev subscription in GCP so you can watch backlog depth and autoscaling behavior during local tests.
 
 ---
 
 ## Follow Along
-I am sharing regular build notes, Terraform drops, and retrieval experiments on GitHub and on X. Next up: bring the Retrieval Engine online, wire up prompt/guardrail scaffolding, and add UI + observability layers. If you want to see what a production-grade AI platform work looks like in the open, follow along and say hi.
+I am sharing regular build notes, Terraform drops, retrieval experiments, and now eval/orchestration progress on GitHub and on X. Next up: wire auth/quotas, observability dashboards, and the tenant-facing UI.
